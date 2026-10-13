@@ -1,0 +1,490 @@
+<title>Forty-Eight Small Worlds</title>
+<style>
+  /* Layout: a live planet on a night sky, its field dossier anchored below; stacks on phones. */
+  /* Deliberately single-theme — a star atlas is a night object; every color set explicitly. */
+  :root{
+    color-scheme: dark;
+    --void:#0a0a12;
+    --void-2:#05050b;
+    --panel:rgba(16,16,28,0.68);
+    --panel-solid:#10101c;
+    --ink:#ece7da;
+    --ink-2:#b4afa1;
+    --ink-3:#6f6a5d;
+    --line:rgba(236,231,218,0.14);
+    --line-2:rgba(236,231,218,0.07);
+    --brass:#d7a74a;
+    --brass-dim:#8a6f33;
+    --serif:"Fraunces",Georgia,"Times New Roman",serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--void);color:var(--ink);
+    font-family:var(--mono);overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  #stage{position:fixed;inset:0;display:block;touch-action:none;cursor:grab}
+  #stage.drag{cursor:grabbing}
+
+  .masthead{
+    position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;
+    display:flex;justify-content:center;pointer-events:none;
+    padding:18px 16px 0;z-index:3;
+  }
+  .masthead span{
+    font-size:11px;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--ink-3);text-align:center;
+  }
+
+  .dossier{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(16px + env(safe-area-inset-bottom,0px));
+    width:min(560px,calc(100% - 28px));
+    background:var(--panel);
+    backdrop-filter:blur(14px) saturate(1.1);
+    -webkit-backdrop-filter:blur(14px) saturate(1.1);
+    border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px 17px;z-index:4;
+  }
+  .nav{display:flex;align-items:center;gap:12px;margin-bottom:11px}
+  .nav button{
+    appearance:none;background:transparent;color:var(--ink-2);
+    border:1px solid var(--line);border-radius:9px;
+    width:38px;height:34px;font-size:16px;cursor:pointer;
+    font-family:var(--mono);line-height:1;transition:border-color .15s,color .15s;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .nav button:hover{color:var(--ink);border-color:var(--ink-3)}
+  .nav button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  .nav .wander{width:auto;padding:0 14px;letter-spacing:.14em;text-transform:uppercase;font-size:11px}
+  .counter{
+    flex:1;text-align:center;font-size:12px;letter-spacing:.22em;
+    color:var(--ink-3);text-transform:uppercase;
+  }
+  .counter b{color:var(--brass);font-weight:500}
+
+  .name{
+    font-family:var(--serif);font-weight:600;
+    font-size:clamp(28px,7vw,40px);line-height:1.02;
+    margin:2px 0 2px;text-wrap:balance;letter-spacing:-.01em;
+  }
+  .klass{
+    font-family:var(--serif);font-style:italic;font-size:15px;
+    color:var(--ink-2);margin-bottom:14px;
+  }
+
+  .stats{
+    display:grid;grid-template-columns:1fr 1fr;
+    gap:9px 22px;margin-bottom:13px;
+  }
+  .stat{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+    border-bottom:1px solid var(--line-2);padding-bottom:6px}
+  .stat .k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+  .stat .v{font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right;min-width:0}
+
+  .note{
+    font-family:var(--serif);font-style:italic;font-size:14px;line-height:1.45;
+    color:var(--ink-2);border-top:1px solid var(--line);padding-top:12px;
+  }
+  .note::before{content:"Field note — ";font-style:normal;font-family:var(--mono);
+    font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--brass-dim)}
+
+  @media (max-width:430px){
+    .stats{gap:8px 16px}
+    .dossier{padding:14px 15px 15px}
+  }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important} }
+</style>
+
+<canvas id="stage" aria-label="A procedurally generated small world"></canvas>
+
+<div class="masthead"><span>The Field Catalogue of Small Worlds</span></div>
+
+<div class="dossier">
+  <div class="nav">
+    <button id="prev" aria-label="Previous world">‹</button>
+    <div class="counter">World <b id="idx">01</b> of 48</div>
+    <button id="wander" class="wander" aria-label="Wander to a random world">Wander</button>
+    <button id="next" aria-label="Next world">›</button>
+  </div>
+  <h1 class="name" id="wname">—</h1>
+  <div class="klass" id="wklass">—</div>
+  <div class="stats" id="stats"></div>
+  <div class="note" id="wnote">—</div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  // ---------- deterministic randomness ----------
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  function hash2(x,y,s){let h=x*374761393+y*668265263+s*2147483647;h=(h^(h>>>13))*1274126177;return((h^(h>>>16))>>>0)/4294967296;}
+  function lerp(a,b,t){return a+(b-a)*t;}
+  function smooth(t){return t*t*(3-2*t);}
+  function clamp(v,a,b){return v<a?a:v>b?b:v;}
+
+  // periodic-in-x value noise (longitude wraps, latitude does not)
+  function vnoise(x,y,period,s){
+    const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;
+    const wx0=((x0%period)+period)%period, wx1=((x0+1)%period+period)%period;
+    const n00=hash2(wx0,y0,s),n10=hash2(wx1,y0,s),n01=hash2(wx0,y0+1,s),n11=hash2(wx1,y0+1,s);
+    const u=smooth(fx),v=smooth(fy);
+    return lerp(lerp(n00,n10,u),lerp(n01,n11,u),v);
+  }
+  function fbm(x,y,baseCells,oct,s){
+    let amp=.5,sum=0,norm=0,p=baseCells,f=1;
+    for(let i=0;i<oct;i++){sum+=amp*vnoise(x*f,y*f,p,s+i*101);norm+=amp;amp*=.5;f*=2;p*=2;}
+    return sum/norm;
+  }
+
+  // ---------- palettes ----------
+  function mix(c1,c2,t){return[Math.round(lerp(c1[0],c2[0],t)),Math.round(lerp(c1[1],c2[1],t)),Math.round(lerp(c1[2],c2[2],t))];}
+  const TYPES=["ocean","forest","desert","ice","molten","barren","gas"];
+
+  function makeWorld(index){
+    const rng=mulberry32((0x9e3779b9 ^ Math.imul(index,2654435761))>>>0);
+    const r=()=>rng(), ri=(a,b)=>Math.floor(a+r()*(b-a+1)), rf=(a,b)=>a+r()*(b-a);
+    // weighted type
+    const w=[0.22,0.16,0.18,0.12,0.09,0.12,0.11]; let roll=r(),acc=0,type="ocean";
+    for(let i=0;i<TYPES.length;i++){acc+=w[i];if(roll<=acc){type=TYPES[i];break;}}
+    const tilt=rf(-0.42,0.42);
+    const capLat=rf(1.05,1.35); // radians from equator where ice begins
+    const hasClouds=(type==="ocean"||type==="forest"||type==="desert")&&r()<0.85;
+    const cloudAmt=rf(0.3,0.62);
+    const moons=type==="gas"?ri(1,3):(r()<0.55?ri(0,2):0);
+    const ring=(type==="gas"||type==="barren")&&r()<0.4;
+
+    // generate equirectangular texture (RGBA; A channel holds emissive 0..255)
+    const W=360,H=180;
+    const land=new Uint8ClampedArray(W*H*4);
+    const base=ri(0,99999);
+    // type color anchors
+    function surfColor(elev,lat){
+      const ab=Math.abs(lat);
+      let col;
+      if(type==="ocean"){
+        if(elev<0.5){const t=clamp(elev/0.5,0,1);col=mix([13,34,58],[42,118,150],t);}
+        else{const t=clamp((elev-0.5)/0.5,0,1);col=mix([74,104,70],[150,154,120],t);}
+      }else if(type==="forest"){
+        if(elev<0.46){const t=clamp(elev/0.46,0,1);col=mix([14,40,46],[38,110,120],t);}
+        else{const t=clamp((elev-0.46)/0.54,0,1);col=mix([40,84,48],[128,150,96],t);}
+      }else if(type==="desert"){
+        if(elev<0.33){const t=clamp(elev/0.33,0,1);col=mix([70,52,30],[150,110,62],t);}
+        else{const t=clamp((elev-0.33)/0.67,0,1);col=mix([164,118,66],[214,180,128],t);}
+      }else if(type==="ice"){
+        const t=clamp(elev,0,1);col=mix([150,180,205],[232,244,252],t);
+        if(elev>0.72)col=mix(col,[120,150,190],(elev-0.72)/0.28);
+      }else if(type==="molten"){
+        if(elev>0.62){const t=clamp((elev-0.62)/0.38,0,1);col=mix([120,30,12],[255,150,40],t);}
+        else{const t=clamp(elev/0.62,0,1);col=mix([22,16,18],[70,36,28],t);}
+      }else if(type==="barren"){
+        const t=clamp(elev,0,1);col=mix([54,50,46],[150,142,130],t);
+      }else{ // gas handled separately
+        col=[180,180,180];
+      }
+      // ice caps
+      if(type!=="molten"&&type!=="gas"&&ab>capLat){
+        const t=clamp((ab-capLat)/(Math.PI/2-capLat+0.001),0,1);
+        col=mix(col,[235,243,250],clamp(t*1.1,0,0.92));
+      }
+      return col;
+    }
+    for(let iy=0;iy<H;iy++){
+      const lat=(iy/H-0.5)*Math.PI;
+      for(let ix=0;ix<W;ix++){
+        const i=(iy*W+ix)*4;
+        let col,em=0;
+        if(type==="gas"){
+          // horizontal bands perturbed by noise swirl
+          const swirl=(fbm(ix/W*6,iy/H*6,5,4,base)-0.5)*0.5;
+          const band=0.5+0.5*Math.sin((iy/H)*Math.PI*ri(7,13)+swirl*6);
+          const hueA=[rf(90,150)|0, rf(70,120)|0, rf(60,110)|0];
+          const hueB=[rf(150,210)|0, rf(130,180)|0, rf(110,160)|0];
+          col=mix(hueA,hueB,band);
+          // subtle storm spot
+        }else{
+          const elev=fbm(ix/W*6,iy/H*6,6,5,base);
+          col=surfColor(elev,lat);
+          if(type==="molten"&&elev>0.62)em=clamp((elev-0.62)/0.38,0,1)*255;
+        }
+        land[i]=col[0];land[i+1]=col[1];land[i+2]=col[2];land[i+3]=em;
+      }
+    }
+    // cloud texture
+    const CW=180,CH=90, clouds=new Uint8ClampedArray(CW*CH);
+    if(hasClouds){
+      const cb=ri(0,99999);
+      for(let iy=0;iy<CH;iy++)for(let ix=0;ix<CW;ix++){
+        const n=fbm(ix/CW*5,iy/CH*5,5,4,cb);
+        const a=clamp((n-(1-cloudAmt))/cloudAmt,0,1);
+        clouds[iy*CW+ix]=Math.round(smooth(a)*255);
+      }
+    }
+
+    // ---- stats (invented but internally consistent; small-world units) ----
+    const radius=ri(300,3200);
+    const grav=+(clamp(radius/3600*rf(0.6,1.05),0.02,0.95)).toFixed(2);
+    const day=(()=>{const h=rf(6,420);return h<48?h.toFixed(1)+" h":(h/24).toFixed(1)+" d";})();
+    const tempRanges={ocean:[248,301],forest:[255,298],desert:[278,344],ice:[118,214],molten:[640,1340],barren:[72,392],gas:[88,168]};
+    const tr=tempRanges[type]; const K=ri(tr[0],tr[1]);
+    const albedoR={ocean:[0.22,0.42],forest:[0.14,0.3],desert:[0.28,0.46],ice:[0.6,0.9],molten:[0.04,0.1],barren:[0.08,0.22],gas:[0.3,0.56]};
+    const albedo=+rf(albedoR[type][0],albedoR[type][1]).toFixed(2);
+    const atmos={
+      ocean:["nitrogen, trace oxygen","thin, water-rich","dense, cloud-wrapped"],
+      forest:["oxygen-rich","humid, pollen-laden","mild nitrogen haze"],
+      desert:["thin carbon dioxide","dust-loaded","trace argon"],
+      ice:["tenuous nitrogen","near-vacuum","methane frost mist"],
+      molten:["sulphur vapour","scorched silicate haze","carbon monoxide"],
+      barren:["none to speak of","exospheric trace","sputtered sodium"],
+      gas:["hydrogen, helium","ammonia cloud decks","banded methane"]
+    };
+    const atmo=atmos[type][ri(0,atmos[type].length-1)];
+    const desig="SW-"+String(ri(1000,9980))+" "+"abcdefgh"[ri(0,7)];
+
+    // ---- name + classification + field note ----
+    const syl=["al","ba","ca","dor","en","fa","io","ka","lu","me","ni","or","pa","qu","re","se","ta","un","va","wen","xi","yo","za","el","is","ov","ae","rin","tho","vey","mir","sol","neh","ara"];
+    let nm=""; const parts=ri(2,3);
+    for(let i=0;i<parts;i++){nm+=syl[ri(0,syl.length-1)];}
+    nm=nm.charAt(0).toUpperCase()+nm.slice(1);
+    if(r()<0.22)nm+=" "+["Minor","Prime","II","Rem","the Lesser"][ri(0,4)];
+    const klassWords={
+      ocean:["a drowned world","an archipelago in miniature","a world of shallow seas"],
+      forest:["a green and breathing rock","a small verdant world","a canopy world"],
+      desert:["a dune-locked world","a world of gold and thirst","a sun-baked waste"],
+      ice:["a frozen pebble","a world sheathed in ice","a cold still world"],
+      molten:["a world still cooling","an ember in the dark","a furnace world"],
+      barren:["a grey and cratered rock","a dead still world","a stone without air"],
+      gas:["a banded small gas-world","a storm wrapped in haze","a pocket giant"]
+    };
+    const klass=klassWords[type][ri(0,2)];
+    const notesByType={
+      ocean:["The tide here runs the long way round.","Its seas are warm and shallow and very old.","Light scatters blue off every horizon."],
+      forest:["Something grows on it that we have not named.","The air reads sweet on the instruments.","Green holds even through its winters."],
+      desert:["The dust settles gold on everything we leave.","No water was found above the deep rock.","Its shadows are the only shade it has."],
+      ice:["No permanent light reaches the far face.","The ice keeps a record we have not read.","Cold enough to still the thinnest air."],
+      molten:["The surface has not yet decided to be solid.","It glows faintly on the night side still.","Too young, or too stubborn, to cool."],
+      barren:["Catalogued, measured, and left alone.","Nothing has changed here in a long while.","A clean rock, by every reading we took."],
+      gas:["The bands drift but never quite break.","There is no ground to speak of, only weather.","Its storms outlast the ones who name them."]
+    };
+    const notesCommon=["First sighted at the edge of the third survey.","One of the quieter entries in the catalogue.","Observed briefly, then kept on the list."];
+    const note=(r()<0.7?notesByType[type]:notesCommon)[ri(0,2)];
+
+    return {index,type,tilt,land,W,H,clouds,CW,CH,hasClouds,cloudAmt,moons,ring,
+      spinSpeed:rf(0.08,0.22)*(r()<0.15?-1:1),cloudSpeed:rf(0.03,0.09),
+      name:nm,klass,note,
+      atmoColor:(type==="molten"?[255,120,60]:type==="ice"?[150,200,235]:type==="desert"?[220,180,120]:type==="gas"?[200,180,150]:[120,170,235]),
+      hasAtmo:type!=="barren",
+      moonSeeds:Array.from({length:moons},()=>({d:rf(1.5,2.4),ph:r()*6.28,sp:rf(0.2,0.5)*(r()<0.5?-1:1),sz:rf(0.07,0.14),sh:ri(90,170),tilt:rf(-0.4,0.4)})),
+      ringCol:[rf(150,200)|0,rf(140,185)|0,rf(120,160)|0],
+      stats:[["Designation",desig],["Radius",radius+" km"],["Gravity",grav+" g"],["Day",day],["Mean temp",K+" K"],["Atmosphere",atmo],["Albedo",albedo.toFixed(2)],["Moons",String(moons)]]
+    };
+  }
+
+  // ---------- rendering ----------
+  const stage=document.getElementById("stage"), ctx=stage.getContext("2d",{alpha:false});
+  const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+  let W=0,H=0,dpr=1,cx=0,cy=0,Rdisp=0,Rint=0;
+  let pbuf,pcanvas,pctx,pimg;
+  let stars=[];
+  let world, spin=0, cloudPhase=0, userSpin=0, t0=performance.now(), lastT=t0;
+
+  const L=(function(){const x=-0.5,y=0.45,z=0.75,m=Math.hypot(x,y,z);return[x/m,y/m,z/m];})();
+
+  function sizePlanetBuffer(){
+    Rint=Math.min(150,Math.round(Rdisp*dpr));
+    const S=Rint*2;
+    pcanvas=document.createElement("canvas");pcanvas.width=S;pcanvas.height=S;
+    pctx=pcanvas.getContext("2d");
+    pimg=pctx.createImageData(S,S);pbuf=pimg.data;
+  }
+  function layout(){
+    const card=document.querySelector(".dossier");
+    dpr=Math.min(2,window.devicePixelRatio||1);
+    W=window.innerWidth;H=window.innerHeight;
+    stage.width=Math.round(W*dpr);stage.height=Math.round(H*dpr);
+    stage.style.width=W+"px";stage.style.height=H+"px";
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const ch=card?card.offsetHeight:220;
+    const avail=H-ch-40;
+    Rdisp=Math.max(70,Math.min(Math.min(W*0.34,avail*0.5), 240));
+    cx=W*0.5; cy=Math.max(Rdisp+70, Math.min(H*0.44, 40+avail*0.5));
+    sizePlanetBuffer();
+    buildStars();
+  }
+  function buildStars(){
+    stars=[];const n=Math.round(W*H/5200);
+    const sr=mulberry32(12345);
+    for(let i=0;i<n;i++){
+      stars.push({x:sr()*W,y:sr()*H,r:sr()*1.1+0.2,a:sr()*0.5+0.25,tw:sr()*6.28,ts:sr()*2+0.5});
+    }
+  }
+
+  function renderPlanet(now){
+    const S=Rint*2, data=pbuf;
+    const w=world, land=w.land, LW=w.W,LH=w.H, cl=w.clouds, CW=w.CW,CH=w.CH, clouds=w.hasClouds;
+    const tilt=w.tilt, st=Math.sin(tilt),ctil=Math.cos(tilt);
+    const ph=spin+userSpin, sp=Math.sin(ph),cp=Math.cos(ph);
+    const cph=cloudPhase, scp=Math.sin(cph),ccp=Math.cos(cph);
+    const Lx=L[0],Ly=L[1],Lz=L[2];
+    const amb=0.07, aw=0.03;
+    const inv=1/Rint;
+    for(let y=0;y<S;y++){
+      const dyv=((y-Rint+0.5)*inv);
+      for(let x=0;x<S;x++){
+        const idx=(y*S+x)*4;
+        const dxv=((x-Rint+0.5)*inv);
+        const d2=dxv*dxv+dyv*dyv;
+        if(d2>1){data[idx+3]=0;continue;}
+        const dz=Math.sqrt(1-d2);
+        const nx=dxv, ny=-dyv, nz=dz;              // view-space normal
+        // tilt around X then spin around Y
+        const y1=ny*ctil-nz*st, z1=ny*st+nz*ctil, x1=nx;
+        const sx=x1*cp+z1*sp, sz=-x1*sp+z1*cp, sy=y1;
+        const lon=Math.atan2(sx,sz), lat=Math.asin(sy<-1?-1:sy>1?1:sy);
+        let u=lon*0.1591549+0.5; u-=Math.floor(u);
+        const v=clamp(0.5-lat*0.3183099,0,0.999999);
+        const li=((( (v*LH)|0 )*LW + ((u*LW)|0))*4);
+        let r=land[li],g=land[li+1],b=land[li+2]; const em=land[li+3]*0.00392;
+        // clouds
+        if(clouds){
+          let cu=u+cph*0.159; cu-=Math.floor(cu);
+          const ci=(((v*CH)|0)*CW + ((cu*CW)|0));
+          const ca=cl[ci]*0.00392;
+          if(ca>0){r=lerp(r,244,ca*0.9);g=lerp(g,246,ca*0.9);b=lerp(b,250,ca*0.9);}
+        }
+        let ndl=nx*Lx+ny*Ly+nz*Lz; if(ndl<0)ndl=0;
+        let bright=em+(1-em)*(amb+ndl*1.08);
+        // lit-limb rim
+        const rim=Math.pow(1-dz,3)*ndl*0.5;
+        let R=r*bright + w.atmoColor[0]*rim;
+        let G=g*bright + w.atmoColor[1]*rim;
+        let B=b*bright + w.atmoColor[2]*rim;
+        data[idx]=R>255?255:R; data[idx+1]=G>255?255:G; data[idx+2]=B>255?255:B;
+        const edge=(1-d2); data[idx+3]=edge<aw?Math.round(255*edge/aw):255;
+      }
+    }
+    pctx.putImageData(pimg,0,0);
+  }
+
+  function drawMoon(m,now){
+    const ang=m.ph+ (reduce?0:(now-t0)*0.001*m.sp);
+    const ex=Math.cos(ang)*Rdisp*m.d, ez=Math.sin(ang);
+    const my=cy+ Math.sin(ang)*Rdisp*m.d*0.28*Math.sin(m.tilt)+Rdisp*m.tilt*0.2;
+    const mx=cx+ex;
+    const mr=Rdisp*m.sz;
+    const front= ez>=0;
+    return {mx,my,mr,sh:m.sh,front};
+  }
+
+  function drawRing(front){
+    const w=world; if(!w.ring)return;
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(-0.42);
+    const rx=Rdisp*2.05, ry=Rdisp*0.62;
+    ctx.beginPath();
+    ctx.ellipse(0,0,rx,ry,0,front?0:Math.PI,front?Math.PI:Math.PI*2);
+    ctx.lineWidth=Rdisp*0.5;
+    const grad=ctx.createLinearGradient(-rx,0,rx,0);
+    const c=w.ringCol;
+    grad.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},0.02)`);
+    grad.addColorStop(0.5,`rgba(${c[0]},${c[1]},${c[2]},0.33)`);
+    grad.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0.02)`);
+    ctx.strokeStyle=grad;ctx.stroke();
+    ctx.restore();
+  }
+
+  function frame(now){
+    const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
+    if(!reduce){spin+=world.spinSpeed*dt; cloudPhase+=world.cloudSpeed*dt;}
+    // background
+    const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.8);
+    g.addColorStop(0,"#0d0d1a");g.addColorStop(1,"#05050b");
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    // stars
+    for(const s of stars){
+      let a=s.a; if(!reduce)a*=0.6+0.4*Math.sin(now*0.001*s.ts+s.tw);
+      ctx.globalAlpha=a;ctx.fillStyle="#fbf7ee";
+      ctx.fillRect(s.x,s.y,s.r,s.r);
+    }
+    ctx.globalAlpha=1;
+
+    // atmosphere glow
+    if(world.hasAtmo){
+      const c=world.atmoColor;
+      const ag=ctx.createRadialGradient(cx,cy,Rdisp*0.9,cx,cy,Rdisp*1.5);
+      ag.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},0.22)`);
+      ag.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+      ctx.fillStyle=ag;ctx.beginPath();ctx.arc(cx,cy,Rdisp*1.5,0,6.2832);ctx.fill();
+    }
+
+    // moons split by depth
+    const ms=world.moonSeeds.map(m=>drawMoon(m,now));
+    function paintMoon(mm){
+      const mg=ctx.createRadialGradient(mm.mx-mm.mr*0.4,mm.my-mm.mr*0.4,mm.mr*0.1,mm.mx,mm.my,mm.mr);
+      mg.addColorStop(0,`rgb(${mm.sh},${mm.sh},${mm.sh-8})`);
+      mg.addColorStop(1,`rgb(${mm.sh*0.25|0},${mm.sh*0.25|0},${mm.sh*0.25|0})`);
+      ctx.fillStyle=mg;ctx.beginPath();ctx.arc(mm.mx,mm.my,mm.mr,0,6.2832);ctx.fill();
+    }
+    drawRing(false);
+    for(const mm of ms)if(!mm.front)paintMoon(mm);
+
+    renderPlanet(now);
+    ctx.drawImage(pcanvas,cx-Rdisp,cy-Rdisp,Rdisp*2,Rdisp*2);
+
+    for(const mm of ms)if(mm.front)paintMoon(mm);
+    drawRing(true);
+
+    raf=requestAnimationFrame(frame);
+  }
+
+  // ---------- UI ----------
+  let current=1, raf=0;
+  const elIdx=document.getElementById("idx"),elName=document.getElementById("wname"),
+        elKlass=document.getElementById("wklass"),elStats=document.getElementById("stats"),
+        elNote=document.getElementById("wnote");
+  function load(i){
+    current=((i-1+48)%48)+1;
+    world=makeWorld(current); userSpin=0; spin=0; cloudPhase=0;
+    elIdx.textContent=String(current).padStart(2,"0");
+    elName.textContent=world.name;
+    elKlass.textContent=world.klass.charAt(0).toUpperCase()+world.klass.slice(1)+".";
+    elStats.innerHTML=world.stats.map(([k,v])=>
+      `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+    elNote.textContent=world.note;
+    stage.setAttribute("aria-label",`World ${current} of 48: ${world.name}, ${world.klass}`);
+    try{localStorage.setItem("fsw.world",String(current));}catch(e){}
+    if(reduce){ // single static frame
+      cancelAnimationFrame(raf); frame(performance.now()); cancelAnimationFrame(raf);
+    }
+  }
+  document.getElementById("prev").onclick=()=>load(current-1);
+  document.getElementById("next").onclick=()=>load(current+1);
+  document.getElementById("wander").onclick=()=>{let n;do{n=Math.floor(Math.random()*48)+1;}while(n===current);load(n);};
+  addEventListener("keydown",e=>{
+    if(e.key==="ArrowLeft"){load(current-1);} else if(e.key==="ArrowRight"){load(current+1);}
+  });
+
+  // drag to spin
+  let dragging=false,lastX=0;
+  stage.addEventListener("pointerdown",e=>{dragging=true;lastX=e.clientX;stage.classList.add("drag");stage.setPointerCapture(e.pointerId);});
+  stage.addEventListener("pointermove",e=>{if(!dragging)return;userSpin+=(e.clientX-lastX)*0.01;lastX=e.clientX;if(reduce){cancelAnimationFrame(raf);frame(performance.now());cancelAnimationFrame(raf);}});
+  stage.addEventListener("pointerup",e=>{dragging=false;stage.classList.remove("drag");});
+  stage.addEventListener("pointercancel",()=>{dragging=false;stage.classList.remove("drag");});
+
+  addEventListener("resize",()=>{layout(); if(reduce){cancelAnimationFrame(raf);frame(performance.now());cancelAnimationFrame(raf);}});
+
+  // hot-reload snapshot (viewer update hook)
+  const boot=(data)=>{
+    layout();
+    let start=data&&data.world?data.world:1;
+    try{if(!data||!data.world){const s=localStorage.getItem("fsw.world");if(s)start=+s;}}catch(e){}
+    load(start);
+    if(!reduce)raf=requestAnimationFrame(frame);
+  };
+  try{window.claude?.hot?.snapshot&&window.claude.hot.snapshot(()=>({world:current}));}catch(e){}
+  (window.claude?.hot?.ready?window.claude.hot.ready(boot):boot(window.claude?.hot?.data||{}));
+})();
+</script>
