@@ -109,7 +109,7 @@
     <button id="wander" class="wander" aria-label="Wander to a random world">Wander</button>
     <button id="next" aria-label="Next world">›</button>
   </div>
-  <h1 class="name" id="wname">—</h1>
+  <h1 class="name" id="wname" aria-live="polite">—</h1>
   <div class="klass" id="wklass">—</div>
   <div class="stats" id="stats"></div>
   <div class="note" id="wnote">—</div>
@@ -157,30 +157,51 @@
     const ring=(type==="gas"||type==="barren")&&r()<0.4;
 
     // generate equirectangular texture (RGBA; A channel holds emissive 0..255)
-    const W=360,H=180;
+    const W=640,H=320;
     const land=new Uint8ClampedArray(W*H*4);
     const base=ri(0,99999);
+    const warpSeed=ri(0,99999), warpAmt=rf(0.3,0.85);
+    const seaLevel= type==="ocean"?rf(0.44,0.56): type==="forest"?rf(0.40,0.50): 0.5;
+    const duneAngle=rf(0,Math.PI), duneFreq=rf(14,26);
+    const crackSeed=ri(0,99999), biomeShift=rf(-0.12,0.12);
+    const bandCount=ri(7,13);
+    const gasA=[rf(90,150)|0,rf(70,120)|0,rf(60,110)|0];
+    const gasB=[rf(150,210)|0,rf(130,180)|0,rf(110,160)|0];
+    const storm=(type==="gas"&&r()<0.8)?{lat:rf(-0.5,0.5),lon:r(),rw:rf(0.10,0.17),rh:rf(0.05,0.09),col:[rf(205,245)|0,rf(150,200)|0,rf(120,170)|0]}:null;
+    function ridge(x,y,cells,oct,s){const n=fbm(x,y,cells,oct,s);return 1-Math.abs(2*n-1);}
     // type color anchors
-    function surfColor(elev,lat){
+    function surfColor(elev,lat,ix,iy){
       const ab=Math.abs(lat);
       let col;
       if(type==="ocean"){
-        if(elev<0.5){const t=clamp(elev/0.5,0,1);col=mix([13,34,58],[42,118,150],t);}
-        else{const t=clamp((elev-0.5)/0.5,0,1);col=mix([74,104,70],[150,154,120],t);}
+        if(elev<seaLevel){const t=clamp(elev/seaLevel,0,1);col=mix([13,34,58],[42,118,150],t);
+          if(elev>seaLevel-0.07)col=mix(col,[92,160,172],clamp((elev-(seaLevel-0.07))/0.07,0,1)*0.55);
+        }else{const t=clamp((elev-seaLevel)/(1-seaLevel),0,1);let ld=mix([74,104,70],[150,154,120],t);
+          if(elev<seaLevel+0.035)ld=mix([198,184,142],ld,clamp((elev-seaLevel)/0.035,0,1));col=ld;}
       }else if(type==="forest"){
-        if(elev<0.46){const t=clamp(elev/0.46,0,1);col=mix([14,40,46],[38,110,120],t);}
-        else{const t=clamp((elev-0.46)/0.54,0,1);col=mix([40,84,48],[128,150,96],t);}
+        if(elev<seaLevel){const t=clamp(elev/seaLevel,0,1);col=mix([14,40,46],[38,110,120],t);
+          if(elev>seaLevel-0.06)col=mix(col,[72,150,140],clamp((elev-(seaLevel-0.06))/0.06,0,1)*0.55);
+        }else{const t=clamp((elev-seaLevel)/(1-seaLevel),0,1);const wet=clamp(1-ab/1.4+biomeShift,0,1);
+          col=mix(mix([58,96,54],[34,74,38],wet),[128,150,96],t*0.7);}
       }else if(type==="desert"){
-        if(elev<0.33){const t=clamp(elev/0.33,0,1);col=mix([70,52,30],[150,110,62],t);}
-        else{const t=clamp((elev-0.33)/0.67,0,1);col=mix([164,118,66],[214,180,128],t);}
+        const ripple=0.05*Math.sin((ix*Math.cos(duneAngle)+iy*Math.sin(duneAngle))*(duneFreq/W)*6.2832);
+        const e=clamp(elev+ripple,0,1);
+        if(e<0.33){const t=clamp(e/0.33,0,1);col=mix([70,52,30],[150,110,62],t);}
+        else{const t=clamp((e-0.33)/0.67,0,1);col=mix([164,118,66],[214,180,128],t);}
       }else if(type==="ice"){
         const t=clamp(elev,0,1);col=mix([150,180,205],[232,244,252],t);
         if(elev>0.72)col=mix(col,[120,150,190],(elev-0.72)/0.28);
+        const cr=ridge(ix/W*10,iy/H*10,8,3,crackSeed);
+        if(cr>0.82)col=mix(col,[88,118,158],clamp((cr-0.82)/0.18,0,1)*0.65);
       }else if(type==="molten"){
         if(elev>0.62){const t=clamp((elev-0.62)/0.38,0,1);col=mix([120,30,12],[255,150,40],t);}
         else{const t=clamp(elev/0.62,0,1);col=mix([22,16,18],[70,36,28],t);}
       }else if(type==="barren"){
-        const t=clamp(elev,0,1);col=mix([54,50,46],[150,142,130],t);
+        col=mix([54,50,46],[150,142,130],clamp(elev,0,1));
+        const cr=ridge(ix/W*14,iy/H*14,10,3,crackSeed);
+        if(cr>0.7)col=mix(col,[38,35,32],clamp((cr-0.7)/0.3,0,1)*0.5);
+        const cr2=ridge(ix/W*8,iy/H*8,6,2,base);
+        if(cr2>0.84)col=mix(col,[182,174,162],0.3);
       }else{ // gas handled separately
         col=[180,180,180];
       }
@@ -197,29 +218,56 @@
         const i=(iy*W+ix)*4;
         let col,em=0;
         if(type==="gas"){
-          // horizontal bands perturbed by noise swirl
-          const swirl=(fbm(ix/W*6,iy/H*6,5,4,base)-0.5)*0.5;
-          const band=0.5+0.5*Math.sin((iy/H)*Math.PI*ri(7,13)+swirl*6);
-          const hueA=[rf(90,150)|0, rf(70,120)|0, rf(60,110)|0];
-          const hueB=[rf(150,210)|0, rf(130,180)|0, rf(110,160)|0];
-          col=mix(hueA,hueB,band);
-          // subtle storm spot
+          const wx=(fbm(ix/W*4,iy/H*4,4,3,warpSeed)-0.5)*0.5;
+          const swirl=(fbm(ix/W*6+wx,iy/H*6,5,4,base)-0.5)*0.6;
+          const band=0.5+0.5*Math.sin((iy/H)*Math.PI*bandCount+swirl*7);
+          col=mix(gasA,gasB,band);
+          if(storm){let du=(ix/W)-storm.lon;du-=Math.round(du);
+            const dv=(iy/H-0.5)-storm.lat*0.159;
+            const sd=(du*du)/(storm.rw*storm.rw)+(dv*dv)/(storm.rh*storm.rh);
+            if(sd<1)col=mix(col,storm.col,clamp((1-sd)*1.2,0,1)*0.8);}
         }else{
-          const elev=fbm(ix/W*6,iy/H*6,6,5,base);
-          col=surfColor(elev,lat);
+          const wx=(fbm(ix/W*3,iy/H*3,3,3,warpSeed)-0.5)*warpAmt;
+          const wy=(fbm(ix/W*3+5.2,iy/H*3+1.3,3,3,warpSeed+1)-0.5)*warpAmt;
+          const elev=fbm(ix/W*6+wx,iy/H*6+wy,6,5,base);
+          col=surfColor(elev,lat,ix,iy);
           if(type==="molten"&&elev>0.62)em=clamp((elev-0.62)/0.38,0,1)*255;
+          else if(type==="ocean"&&elev<seaLevel)em=255;
+          else if(type==="forest"&&elev<seaLevel)em=255;
         }
         land[i]=col[0];land[i+1]=col[1];land[i+2]=col[2];land[i+3]=em;
       }
     }
     // cloud texture
-    const CW=180,CH=90, clouds=new Uint8ClampedArray(CW*CH);
+    const CW=320,CH=160, clouds=new Uint8ClampedArray(CW*CH);
     if(hasClouds){
       const cb=ri(0,99999);
       for(let iy=0;iy<CH;iy++)for(let ix=0;ix<CW;ix++){
         const n=fbm(ix/CW*5,iy/CH*5,5,4,cb);
         const a=clamp((n-(1-cloudAmt))/cloudAmt,0,1);
         clouds[iy*CW+ix]=Math.round(smooth(a)*255);
+      }
+    }
+
+    // ---- host star: spectral class tints the sunlight ----
+    const starRoll=r();
+    const starClass= starRoll<0.5?"M": starRoll<0.74?"K": starRoll<0.9?"G": starRoll<0.97?"F":"A";
+    const starTint={M:[255,196,150],K:[255,224,196],G:[255,248,240],F:[244,246,255],A:[214,228,255]}[starClass];
+    const starName={M:"red dwarf",K:"orange dwarf",G:"yellow star",F:"white star",A:"blue-white star"}[starClass];
+    const hasCompanion=r()<0.28;
+    // ---- night-side settlements, for living worlds only ----
+    const hasLife=(type==="ocean"||type==="forest")&&r()<0.55;
+    let cities=null;
+    if(hasLife){
+      cities=new Uint8ClampedArray(W*H); const lb=ri(0,99999), density=rf(0.5,0.85);
+      for(let iy=0;iy<H;iy++)for(let ix=0;ix<W;ix++){
+        const wx=(fbm(ix/W*3,iy/H*3,3,3,warpSeed)-0.5)*warpAmt;
+        const wy=(fbm(ix/W*3+5.2,iy/H*3+1.3,3,3,warpSeed+1)-0.5)*warpAmt;
+        const elev=fbm(ix/W*6+wx,iy/H*6+wy,6,5,base);
+        if(elev>seaLevel && elev<seaLevel+0.22){        // habitable coastal band
+          const cl2=fbm(ix/W*22,iy/H*22,16,3,lb);
+          if(cl2>density)cities[iy*W+ix]=Math.round(clamp((cl2-density)/(1-density),0,1)*255);
+        }
       }
     }
 
@@ -272,13 +320,17 @@
     const note=(r()<0.7?notesByType[type]:notesCommon)[ri(0,2)];
 
     return {index,type,tilt,land,W,H,clouds,CW,CH,hasClouds,cloudAmt,moons,ring,
+      isMolten:type==="molten",isWater:(type==="ocean"||type==="forest"),isIce:type==="ice",
+      cities,hasLife,starTint,starClass,hasCompanion,
+      hasAurora:(type!=="barren"&&type!=="molten"&&type!=="gas"&&r()<0.5),auroraCol:r()<0.35?[200,120,230]:[110,230,170],
+      nebula:[ri(40,120),ri(30,90),ri(60,140)],nebAmt:r()<0.5?rf(0.04,0.1):0,
       spinSpeed:rf(0.08,0.22)*(r()<0.15?-1:1),cloudSpeed:rf(0.03,0.09),
       name:nm,klass,note,
       atmoColor:(type==="molten"?[255,120,60]:type==="ice"?[150,200,235]:type==="desert"?[220,180,120]:type==="gas"?[200,180,150]:[120,170,235]),
       hasAtmo:type!=="barren",
-      moonSeeds:Array.from({length:moons},()=>({d:rf(1.5,2.4),ph:r()*6.28,sp:rf(0.2,0.5)*(r()<0.5?-1:1),sz:rf(0.07,0.14),sh:ri(90,170),tilt:rf(-0.4,0.4)})),
+      moonSeeds:Array.from({length:moons},()=>({d:rf(1.5,2.4),ph:r()*6.28,sp:rf(0.2,0.5)*(r()<0.5?-1:1),sz:rf(0.07,0.14),sh:ri(90,170),tilt:rf(-0.4,0.4),craters:Array.from({length:3},()=>({x:rf(-0.5,0.5),y:rf(-0.5,0.5),r:rf(0.09,0.2)}))})),
       ringCol:[rf(150,200)|0,rf(140,185)|0,rf(120,160)|0],
-      stats:[["Designation",desig],["Radius",radius+" km"],["Gravity",grav+" g"],["Day",day],["Mean temp",K+" K"],["Atmosphere",atmo],["Albedo",albedo.toFixed(2)],["Moons",String(moons)]]
+      stats:[["Designation",desig],["Primary",starName+(hasCompanion?" (binary)":"")],["Radius",radius+" km"],["Gravity",grav+" g"],["Day",day],["Mean temp",K+" K"],["Atmosphere",atmo],["Albedo",albedo.toFixed(2)],["Moons",String(moons)]]
     };
   }
 
@@ -288,7 +340,7 @@
   let W=0,H=0,dpr=1,cx=0,cy=0,Rdisp=0,Rint=0;
   let pbuf,pcanvas,pctx,pimg;
   let stars=[];
-  let world, spin=0, cloudPhase=0, userSpin=0, t0=performance.now(), lastT=t0;
+  let world, spin=0, cloudPhase=0, userSpin=0, t0=performance.now(), lastT=t0, meteor=null;
 
   const L=(function(){const x=-0.5,y=0.45,z=0.75,m=Math.hypot(x,y,z);return[x/m,y/m,z/m];})();
 
@@ -317,7 +369,8 @@
     stars=[];const n=Math.round(W*H/5200);
     const sr=mulberry32(12345);
     for(let i=0;i<n;i++){
-      stars.push({x:sr()*W,y:sr()*H,r:sr()*1.1+0.2,a:sr()*0.5+0.25,tw:sr()*6.28,ts:sr()*2+0.5});
+      const t=sr(); const col= t<0.72?"#fbf7ee": t<0.87?"#bcd0ff":"#ffd9a8";
+      stars.push({x:sr()*W,y:sr()*H,r:sr()*1.1+0.2,a:sr()*0.5+0.25,tw:sr()*6.28,ts:sr()*2+0.5,col});
     }
   }
 
@@ -329,6 +382,15 @@
     const cph=cloudPhase, scp=Math.sin(cph),ccp=Math.cos(cph);
     const Lx=L[0],Ly=L[1],Lz=L[2];
     const amb=0.07, aw=0.03;
+    const isMolten=w.isMolten, isWater=w.isWater, isIce=w.isIce, hasAtmo=w.hasAtmo;
+    const ac0=w.atmoColor[0],ac1=w.atmoColor[1],ac2=w.atmoColor[2];
+    const stR=w.starTint[0]/255, stG=w.starTint[1]/255, stB=w.starTint[2]/255;
+    const cities=w.cities, auroraOn=w.hasAurora, au0=w.auroraCol[0],au1=w.auroraCol[1],au2=w.auroraCol[2];
+    const auPhase=cph*2.0;
+    // binary companion: a dim cool fill from the far upper-right
+    const hasComp=w.hasCompanion; const C2=[0.55,0.3,0.78], c2m=1/Math.hypot(C2[0],C2[1],C2[2]);
+    const L2x=C2[0]*c2m,L2y=C2[1]*c2m,L2z=C2[2]*c2m;
+    let hx=Lx,hy=Ly,hz=Lz+1; const hm=1/Math.hypot(hx,hy,hz); hx*=hm;hy*=hm;hz*=hm;
     const inv=1/Rint;
     for(let y=0;y<S;y++){
       const dyv=((y-Rint+0.5)*inv);
@@ -345,22 +407,70 @@
         const lon=Math.atan2(sx,sz), lat=Math.asin(sy<-1?-1:sy>1?1:sy);
         let u=lon*0.1591549+0.5; u-=Math.floor(u);
         const v=clamp(0.5-lat*0.3183099,0,0.999999);
-        const li=((( (v*LH)|0 )*LW + ((u*LW)|0))*4);
-        let r=land[li],g=land[li+1],b=land[li+2]; const em=land[li+3]*0.00392;
-        // clouds
+        // bilinear surface sample (longitude wraps, latitude clamps)
+        const fu=u*LW-0.5, fv=v*LH-0.5;
+        let iu0=Math.floor(fu), iv0=Math.floor(fv); const tu=fu-iu0, tv=fv-iv0;
+        let iu1=iu0+1; iu0=((iu0%LW)+LW)%LW; iu1=((iu1%LW)+LW)%LW;
+        let iv1=iv0+1; iv0=iv0<0?0:iv0>=LH?LH-1:iv0; iv1=iv1<0?0:iv1>=LH?LH-1:iv1;
+        const o00=(iv0*LW+iu0)*4,o10=(iv0*LW+iu1)*4,o01=(iv1*LW+iu0)*4,o11=(iv1*LW+iu1)*4;
+        const w00=(1-tu)*(1-tv),w10=tu*(1-tv),w01=(1-tu)*tv,w11=tu*tv;
+        let r=land[o00]*w00+land[o10]*w10+land[o01]*w01+land[o11]*w11;
+        let g=land[o00+1]*w00+land[o10+1]*w10+land[o01+1]*w01+land[o11+1]*w11;
+        let b=land[o00+2]*w00+land[o10+2]*w10+land[o01+2]*w01+land[o11+2]*w11;
+        const a=(land[o00+3]*w00+land[o10+3]*w10+land[o01+3]*w01+land[o11+3]*w11)*0.00392;
+        // clouds (bilinear) + cast shadow on the surface below
+        let cloudHere=0;
         if(clouds){
           let cu=u+cph*0.159; cu-=Math.floor(cu);
-          const ci=(((v*CH)|0)*CW + ((cu*CW)|0));
-          const ca=cl[ci]*0.00392;
+          const cfu=cu*CW-0.5, cfv=v*CH-0.5;
+          let cu0=Math.floor(cfu), cv0=Math.floor(cfv); const ctu=cfu-cu0, ctv=cfv-cv0;
+          let cu1=cu0+1; cu0=((cu0%CW)+CW)%CW; cu1=((cu1%CW)+CW)%CW;
+          let cv1=cv0+1; cv0=cv0<0?0:cv0>=CH?CH-1:cv0; cv1=cv1<0?0:cv1>=CH?CH-1:cv1;
+          const ca=(cl[cv0*CW+cu0]*(1-ctu)*(1-ctv)+cl[cv0*CW+cu1]*ctu*(1-ctv)+cl[cv1*CW+cu0]*(1-ctu)*ctv+cl[cv1*CW+cu1]*ctu*ctv)*0.00392;
+          cloudHere=ca;
+          let su=cu-0.02; su-=Math.floor(su);
+          const sha=cl[(((v*CH)|0)*CW+((su*CW)|0))]*0.00392;
+          if(sha>ca){const sh=(sha-ca)*0.35; r*=(1-sh);g*=(1-sh);b*=(1-sh);}
           if(ca>0){r=lerp(r,244,ca*0.9);g=lerp(g,246,ca*0.9);b=lerp(b,250,ca*0.9);}
         }
         let ndl=nx*Lx+ny*Ly+nz*Lz; if(ndl<0)ndl=0;
-        let bright=em+(1-em)*(amb+ndl*1.08);
-        // lit-limb rim
+        const em=isMolten?a:0;
+        // soft terminator so day fades into night instead of a hard edge
+        const lit=ndl*ndl*(3-2*ndl);
+        const baseB=em+(1-em)*amb, sunB=(1-em)*lit*1.05;
         const rim=Math.pow(1-dz,3)*ndl*0.5;
-        let R=r*bright + w.atmoColor[0]*rim;
-        let G=g*bright + w.atmoColor[1]*rim;
-        let B=b*bright + w.atmoColor[2]*rim;
+        let R=r*(baseB+sunB*stR) + ac0*rim;
+        let G=g*(baseB+sunB*stG) + ac1*rim;
+        let B=b*(baseB+sunB*stB) + ac2*rim;
+        // dim companion-star fill on the opposite shoulder
+        if(hasComp){let n2=nx*L2x+ny*L2y+nz*L2z; if(n2>0){const f=n2*n2*0.14;R+=r*f*0.8;G+=g*f*0.9;B+=b*f;}}
+        // night side: settlement lights and polar aurora
+        const night=ndl<0.14?(0.14-ndl)/0.14:0;
+        if(night>0){
+          if(cities){
+            const ci=((v*LH)|0)*LW+((u*LW)|0); const cv=cities[ci]*0.00392;
+            if(cv>0){const gl=cv*night*1.3; R+=255*gl; G+=200*gl; B+=120*gl;}
+          }
+          if(auroraOn){
+            const polar=Math.max(0,(Math.abs(sy)-0.6)/0.4);
+            if(polar>0){const shim=0.5+0.5*Math.sin(u*34+auPhase+sy*8);
+              const au=polar*polar*night*shim*0.6; R+=au0*au; G+=au1*au; B+=au2*au;}
+          }
+        }
+        // specular: broad glint off water, tight glint off ice
+        if(ndl>0){
+          if(isWater&&a>0){let nh=nx*hx+ny*hy+nz*hz; if(nh<0)nh=0;
+            const sgl=Math.min(0.5,Math.pow(nh,90)*a*ndl*0.9); R+=200*sgl; G+=216*sgl; B+=235*sgl;}
+          else if(isIce){let nh=nx*hx+ny*hy+nz*hz; if(nh<0)nh=0;
+            const sgl=Math.min(0.4,Math.pow(nh,120)*ndl*0.5); R+=210*sgl; G+=224*sgl; B+=240*sgl;}
+        }
+        // day-side atmospheric limb haze + warm sunset band at the terminator
+        if(hasAtmo){
+          const haze=Math.pow(1-dz,2.2)*lit*0.6;
+          R+=ac0*haze; G+=ac1*haze; B+=ac2*haze;
+          const term=Math.max(0,1-Math.abs(ndl-0.12)/0.12)*(1-dz)*0.45;
+          R+=240*term; G+=150*term; B+=70*term;
+        }
         data[idx]=R>255?255:R; data[idx+1]=G>255?255:G; data[idx+2]=B>255?255:B;
         const edge=(1-d2); data[idx+3]=edge<aw?Math.round(255*edge/aw):255;
       }
@@ -375,7 +485,7 @@
     const mx=cx+ex;
     const mr=Rdisp*m.sz;
     const front= ez>=0;
-    return {mx,my,mr,sh:m.sh,front};
+    return {mx,my,mr,sh:m.sh,front,craters:m.craters};
   }
 
   function drawRing(front){
@@ -393,6 +503,15 @@
     grad.addColorStop(0.5,`rgba(${c[0]},${c[1]},${c[2]},0.33)`);
     grad.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0.02)`);
     ctx.strokeStyle=grad;ctx.stroke();
+    // Cassini-style divisions: two thin dark gaps in the ring plane
+    for(const [rr,lw] of [[0.72,0.05],[0.9,0.03]]){
+      ctx.beginPath();ctx.ellipse(0,0,rx*rr+Rdisp*0.5*(1-rr),ry*rr+Rdisp*0.5*(1-rr),0,front?0:Math.PI,front?Math.PI:Math.PI*2);
+      ctx.lineWidth=Rdisp*lw;ctx.strokeStyle="rgba(10,8,14,0.5)";ctx.stroke();
+    }
+    // planet shadow falling across the ring, anti-sunward side
+    ctx.beginPath();
+    ctx.ellipse(0,0,rx,ry,0, front?0.35:Math.PI+0.35, front?1.15:Math.PI+1.15);
+    ctx.lineWidth=Rdisp*0.5;ctx.strokeStyle="rgba(0,0,0,0.45)";ctx.stroke();
     ctx.restore();
   }
 
@@ -400,16 +519,45 @@
     const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
     if(!reduce){spin+=world.spinSpeed*dt; cloudPhase+=world.cloudSpeed*dt;}
     // background
-    const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.8);
-    g.addColorStop(0,"#0d0d1a");g.addColorStop(1,"#05050b");
+    const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.85);
+    g.addColorStop(0,"#0d0d1a");g.addColorStop(1,"#040409");
     ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-    // stars
+    // per-world nebula wash
+    if(world.nebAmt>0){const nc=world.nebula;
+      const ng=ctx.createRadialGradient(W*0.3,H*0.34,0,W*0.3,H*0.34,Math.max(W,H)*0.6);
+      ng.addColorStop(0,`rgba(${nc[0]},${nc[1]},${nc[2]},${world.nebAmt})`);
+      ng.addColorStop(1,`rgba(${nc[0]},${nc[1]},${nc[2]},0)`);
+      ctx.fillStyle=ng;ctx.fillRect(0,0,W,H);}
+    // faint milky-way band
+    ctx.save();ctx.globalAlpha=0.045;
+    const mb=ctx.createLinearGradient(0,H*0.15,W,H*0.85);
+    mb.addColorStop(0,"rgba(120,130,180,0)");mb.addColorStop(0.5,"rgba(150,160,205,1)");mb.addColorStop(1,"rgba(120,130,180,0)");
+    ctx.fillStyle=mb;ctx.fillRect(0,0,W,H);ctx.restore();
+    // stars (colored by class)
     for(const s of stars){
       let a=s.a; if(!reduce)a*=0.6+0.4*Math.sin(now*0.001*s.ts+s.tw);
-      ctx.globalAlpha=a;ctx.fillStyle="#fbf7ee";
+      ctx.globalAlpha=a;ctx.fillStyle=s.col;
       ctx.fillRect(s.x,s.y,s.r,s.r);
     }
     ctx.globalAlpha=1;
+
+    // host-star glow, off-frame upper-left in the sunlight direction, tinted by class
+    {const st=world.starTint, gx=cx-Rdisp*2.1, gy=cy-Rdisp*1.7;
+     const sg=ctx.createRadialGradient(gx,gy,0,gx,gy,Rdisp*1.9);
+     sg.addColorStop(0,`rgba(${st[0]},${st[1]},${st[2]},0.5)`);
+     sg.addColorStop(0.15,`rgba(${st[0]},${st[1]},${st[2]},0.14)`);
+     sg.addColorStop(1,`rgba(${st[0]},${st[1]},${st[2]},0)`);
+     ctx.fillStyle=sg;ctx.fillRect(0,0,W,H);
+     ctx.globalAlpha=0.9;ctx.fillStyle=`rgb(${st[0]},${st[1]},${st[2]})`;
+     ctx.beginPath();ctx.arc(gx,gy,2.4,0,6.2832);ctx.fill();ctx.globalAlpha=1;}
+
+    // occasional meteor streak
+    if(!reduce){
+      if(!meteor && Math.random()<0.004) meteor={x:Math.random()*W,y:Math.random()*H*0.5,vx:-(3+Math.random()*4),vy:(2+Math.random()*3),life:1};
+      if(meteor){const m=meteor;ctx.save();ctx.globalAlpha=m.life*0.8;ctx.strokeStyle="#fffdf6";ctx.lineWidth=1.4;
+        ctx.beginPath();ctx.moveTo(m.x,m.y);ctx.lineTo(m.x-m.vx*6,m.y-m.vy*6);ctx.stroke();ctx.restore();
+        m.x+=m.vx;m.y+=m.vy;m.life-=0.012; if(m.life<=0)meteor=null;}
+    }
 
     // atmosphere glow
     if(world.hasAtmo){
@@ -427,6 +575,14 @@
       mg.addColorStop(0,`rgb(${mm.sh},${mm.sh},${mm.sh-8})`);
       mg.addColorStop(1,`rgb(${mm.sh*0.25|0},${mm.sh*0.25|0},${mm.sh*0.25|0})`);
       ctx.fillStyle=mg;ctx.beginPath();ctx.arc(mm.mx,mm.my,mm.mr,0,6.2832);ctx.fill();
+      ctx.save();ctx.beginPath();ctx.arc(mm.mx,mm.my,mm.mr,0,6.2832);ctx.clip();
+      ctx.fillStyle="rgba(0,0,0,0.16)";
+      for(const c of mm.craters){ctx.beginPath();ctx.arc(mm.mx+c.x*mm.mr,mm.my+c.y*mm.mr,c.r*mm.mr,0,6.2832);ctx.fill();}
+      // phase shadow: dark side away from the sun (sun is upper-left on screen)
+      const pg=ctx.createLinearGradient(mm.mx-mm.mr,mm.my-mm.mr,mm.mx+mm.mr,mm.my+mm.mr);
+      pg.addColorStop(0,"rgba(0,0,0,0)");pg.addColorStop(0.52,"rgba(0,0,0,0)");pg.addColorStop(1,"rgba(0,0,0,0.7)");
+      ctx.fillStyle=pg;ctx.fillRect(mm.mx-mm.mr,mm.my-mm.mr,mm.mr*2,mm.mr*2);
+      ctx.restore();
     }
     drawRing(false);
     for(const mm of ms)if(!mm.front)paintMoon(mm);
@@ -436,6 +592,11 @@
 
     for(const mm of ms)if(mm.front)paintMoon(mm);
     drawRing(true);
+
+    // finishing vignette
+    const vg=ctx.createRadialGradient(cx,cy,Math.min(W,H)*0.32,cx,cy,Math.max(W,H)*0.78);
+    vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,"rgba(0,0,0,0.38)");
+    ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
 
     raf=requestAnimationFrame(frame);
   }
@@ -464,17 +625,37 @@
   document.getElementById("next").onclick=()=>load(current+1);
   document.getElementById("wander").onclick=()=>{let n;do{n=Math.floor(Math.random()*48)+1;}while(n===current);load(n);};
   addEventListener("keydown",e=>{
-    if(e.key==="ArrowLeft"){load(current-1);} else if(e.key==="ArrowRight"){load(current+1);}
+    if(e.key==="ArrowLeft"){load(current-1);}
+    else if(e.key==="ArrowRight"){load(current+1);}
+    else if(e.key==="Home"){load(1);}
+    else if(e.key==="End"){load(48);}
+    else if(e.key==="r"||e.key==="R"){document.getElementById("wander").click();}
   });
+
+  // one-time drag hint, fades after the first spin
+  const hint=document.createElement("div");hint.id="draghint";hint.textContent="drag to spin";
+  hint.style.cssText="position:fixed;left:50%;transform:translateX(-50%);top:calc(52px + env(safe-area-inset-top,0px));z-index:3;pointer-events:none;font:11px/1 var(--mono,monospace);letter-spacing:.2em;text-transform:uppercase;color:var(--ink-3,#6f6a5d);opacity:0;transition:opacity 1s";
+  document.body.appendChild(hint);
+  let hintShown=false,hintDone=false;
+  try{if(localStorage.getItem("fsw.hint")==="1")hintDone=true;}catch(e){}
+  if(!hintDone)setTimeout(()=>{if(!hintDone){hint.style.opacity="1";hintShown=true;}},900);
+  function killHint(){if(hintDone)return;hintDone=true;hint.style.opacity="0";try{localStorage.setItem("fsw.hint","1");}catch(e){}}
 
   // drag to spin
   let dragging=false,lastX=0;
-  stage.addEventListener("pointerdown",e=>{dragging=true;lastX=e.clientX;stage.classList.add("drag");stage.setPointerCapture(e.pointerId);});
-  stage.addEventListener("pointermove",e=>{if(!dragging)return;userSpin+=(e.clientX-lastX)*0.01;lastX=e.clientX;if(reduce){cancelAnimationFrame(raf);frame(performance.now());cancelAnimationFrame(raf);}});
-  stage.addEventListener("pointerup",e=>{dragging=false;stage.classList.remove("drag");});
+  const redrawIfStatic=()=>{if(reduce){cancelAnimationFrame(raf);frame(performance.now());cancelAnimationFrame(raf);}};
+  stage.addEventListener("pointerdown",e=>{dragging=true;lastX=e.clientX;stage.classList.add("drag");stage.setPointerCapture(e.pointerId);killHint();});
+  stage.addEventListener("pointermove",e=>{if(!dragging)return;userSpin+=(e.clientX-lastX)*0.01;lastX=e.clientX;redrawIfStatic();});
+  stage.addEventListener("pointerup",()=>{dragging=false;stage.classList.remove("drag");});
   stage.addEventListener("pointercancel",()=>{dragging=false;stage.classList.remove("drag");});
 
-  addEventListener("resize",()=>{layout(); if(reduce){cancelAnimationFrame(raf);frame(performance.now());cancelAnimationFrame(raf);}});
+  addEventListener("resize",()=>{layout(); redrawIfStatic();});
+
+  // pause the loop while the tab is hidden, to spare the battery
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden){if(raf){cancelAnimationFrame(raf);raf=0;}}
+    else if(!reduce && !raf){lastT=performance.now();raf=requestAnimationFrame(frame);}
+  });
 
   // hot-reload snapshot (viewer update hook)
   const boot=(data)=>{
